@@ -15,6 +15,8 @@ Un AGENT IA puissant basé sur la technologie RAG (Retrieval-Augmented Generatio
   - Statistiques de la base de données
   - Recherche avec contexte étendu
   - Découverte de contenu lié
+- **Source Summary** : Chaque résultat de recherche inclut un résumé des sources utilisées, facilitant la traçabilité des informations.
+- **Recherche Wikipedia** : Intégration de la recherche Wikipedia pour enrichir les résultats avec des informations externes.
 
 ## 📋 Prérequis
 
@@ -63,6 +65,10 @@ streamlit run simple_rag_chat2.py
    - Télécharger des documents
    - Poser des questions sur vos documents
    - Explorer le contenu de votre base de connaissances
+
+4. **Source Summary** : Chaque résultat de recherche inclut un résumé des sources utilisées, facilitant la traçabilité des informations.
+
+5. **Recherche Wikipedia** : Utilisez la recherche Wikipedia pour obtenir des informations supplémentaires.
 
 ## 🛠️ Technologies Utilisées
 
