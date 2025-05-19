@@ -27,8 +27,8 @@ Un AGENT IA puissant basé sur la technologie RAG (Retrieval-Augmented Generatio
 
 1. Clonez le repository :
 ```bash
-git clone [URL_DU_REPO]
-cd [NOM_DU_DOSSIER]
+git clone https://github.com/IlyasOuchen1/RAG-AGENT2.git
+cd RAG-AGENT2
 ```
 
 2. Créez un environnement virtuel et activez-le :
