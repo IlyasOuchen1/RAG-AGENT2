@@ -12,6 +12,8 @@ from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, TextLoader, Docx2txtLoader
+from langchain_community.tools import WikipediaQueryRun
+from langchain_community.utilities import WikipediaAPIWrapper
 
 # Pinecone
 from pinecone import Pinecone, ServerlessSpec
@@ -53,16 +55,35 @@ def init_vector_store():
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small")
     return PineconeVectorStore(index=index, embedding=embeddings)
 
-# Configuration du LLM (correction de l'erreur)
+# Configuration du LLM avec GPT-4o Mini (version équilibrée)
 @st.cache_resource
 def init_llm():
     return ChatOpenAI(
-        model="gpt-4o-mini", 
-        temperature=0.1
+        model="gpt-4o-mini",  # GPT-4o Mini - équilibre vitesse/qualité
+        temperature=0.1,      # Légère créativité contrôlée
+        max_tokens=2000,      # Limite généreuse pour des réponses complètes
+        request_timeout=30    # Timeout standard
     )
 
 # Outils de recherche avancés
 vector_store = init_vector_store()
+
+# Configuration Wikipedia
+wikipedia = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(top_k_results=2, doc_content_chars_max=1000))
+
+@tool
+def search_wikipedia(query: str) -> str:
+    """Recherche des informations sur Wikipedia."""
+    try:
+        result = wikipedia.run(query)
+        if result:
+            response = f"📚 **Résultats Wikipedia pour '{query}':**\n\n{result}\n\nSource: Wikipedia"
+            response += "\n\n📚 **Sources utilisées:**\n• Wikipedia"
+            return response
+        else:
+            return f"Aucun résultat trouvé sur Wikipedia pour '{query}'."
+    except Exception as e:
+        return f"Erreur lors de la recherche Wikipedia: {str(e)}"
 
 @tool
 def retrieve(query: str) -> str:
@@ -72,9 +93,17 @@ def retrieve(query: str) -> str:
         return "Aucune information trouvée dans les documents."
     
     results = []
+    sources = set()
     for i, doc in enumerate(docs, 1):
         filename = doc.metadata.get('filename', 'Document inconnu')
-        results.append(f"📄 {filename} - Résultat {i}:\n{doc.page_content}\n")
+        sources.add(filename)
+        source = f"Source: {filename}"
+        results.append(f"📄 {filename} - Résultat {i}:\n{doc.page_content}\n{source}\n")
+    
+    # Add sources summary
+    results.append("\n📚 **Sources utilisées:**")
+    for source in sorted(sources):
+        results.append(f"• {source}")
     
     return "\n".join(results)
 
@@ -86,9 +115,17 @@ def search_documents(query: str) -> str:
         return "Aucune information trouvée dans les documents."
     
     results = []
+    sources = set()
     for i, doc in enumerate(docs, 1):
         filename = doc.metadata.get('filename', 'Document inconnu')
-        results.append(f"📄 {filename} - Extrait {i}:\n{doc.page_content}\n")
+        sources.add(filename)
+        source = f"Source: {filename}"
+        results.append(f"📄 {filename} - Extrait {i}:\n{doc.page_content}\n{source}\n")
+    
+    # Add sources summary
+    results.append("\n📚 **Sources utilisées:**")
+    for source in sorted(sources):
+        results.append(f"• {source}")
     
     return "\n".join(results)
 
@@ -104,8 +141,16 @@ def search_specific_document(filename: str, query: str) -> str:
         return f"Aucune information trouvée dans le document '{filename}' pour cette requête."
     
     results = []
+    sources = set()
     for i, doc in enumerate(docs, 1):
-        results.append(f"📄 {filename} - Section {i}:\n{doc.page_content}\n")
+        sources.add(filename)
+        source = f"Source: {filename}"
+        results.append(f"📄 {filename} - Section {i}:\n{doc.page_content}\n{source}\n")
+    
+    # Add sources summary
+    results.append("\n📚 **Sources utilisées:**")
+    for source in sorted(sources):
+        results.append(f"• {source}")
     
     return "\n".join(results)
 
@@ -205,9 +250,17 @@ def search_with_context(query: str, context_size: int = 5) -> str:
         return "Aucune information trouvée dans les documents."
     
     results = []
+    sources = set()
     for i, doc in enumerate(docs, 1):
         filename = doc.metadata.get('filename', 'Document inconnu')
-        results.append(f"📄 {filename} - Contexte {i}:\n{doc.page_content}\n")
+        sources.add(filename)
+        source = f"Source: {filename}"
+        results.append(f"📄 {filename} - Contexte {i}:\n{doc.page_content}\n{source}\n")
+    
+    # Add sources summary
+    results.append("\n📚 **Sources utilisées:**")
+    for source in sorted(sources):
+        results.append(f"• {source}")
     
     return "\n".join(results)
 
@@ -221,31 +274,45 @@ def find_related_content(query: str) -> str:
     
     # Utiliser le contenu trouvé pour chercher du contenu similaire
     related_results = []
+    sources = set()
     for doc in initial_docs:
         # Recherche basée sur le contenu trouvé
         related_docs = vector_store.similarity_search(doc.page_content[:200], k=2)
         for related_doc in related_docs:
             if related_doc.page_content != doc.page_content:  # Éviter les doublons
                 filename = related_doc.metadata.get('filename', 'Document inconnu')
-                related_results.append(f"📄 {filename} - Contenu lié:\n{related_doc.page_content}\n")
+                sources.add(filename)
+                source = f"Source: {filename}"
+                related_results.append(f"📄 {filename} - Contenu lié:\n{related_doc.page_content}\n{source}\n")
     
     if not related_results:
         return "Aucun contenu lié supplémentaire trouvé."
     
+    # Add sources summary
+    related_results.append("\n📚 **Sources utilisées:**")
+    for source in sorted(sources):
+        related_results.append(f"• {source}")
+    
     return "\n".join(related_results[:3])  # Limiter à 3 résultats
 
 # Configuration de l'agent avec tous les outils
-def create_agent():
+def create_agent(search_mode="both"):
     llm = init_llm()
-    tools = [
-        retrieve,  # Outil principal de retrieve
-        search_documents,
-        search_specific_document,
-        get_document_summary,
-        list_available_documents,
-        search_with_context,
-        find_related_content
-    ]
+    
+    # Define tools based on search mode
+    tools = []
+    if search_mode in ["both", "internal"]:
+        tools.extend([
+            retrieve,  # Outil principal de retrieve
+            search_documents,
+            search_specific_document,
+            get_document_summary,
+            list_available_documents,
+            search_with_context,
+            find_related_content
+        ])
+    if search_mode in ["both", "external"]:
+        tools.append(search_wikipedia)
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", """Tu es un assistant expert en recherche documentaire. Tu as accès à plusieurs outils puissants :
@@ -331,10 +398,10 @@ def process_file(uploaded_file):
     docs = loader.load()
     os.unlink(tmp_path)
     
-    # Diviser en chunks plus petits pour éviter la limite de 2MB
+    # Diviser en chunks équilibrés
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,      # Réduit de 1000 à 500
-        chunk_overlap=100,   # Réduit de 200 à 100
+        chunk_size=500,      # Taille équilibrée
+        chunk_overlap=100,   # Bon overlap pour la cohérence
         length_function=len,
         separators=["\n\n", "\n", " ", ""]
     )
@@ -387,8 +454,9 @@ def process_file(uploaded_file):
         return False
 
 # Interface utilisateur améliorée
-st.title("🤖 Assistant RAG Multilingue | Multilingual RAG Assistant")
-st.caption("🌐 Posez vos questions en français, anglais, espagnol ou toute autre langue | Ask questions in French, English, Spanish or any other language")
+st.title("🤖 Assistant RAG Multilingue (GPT-4o Mini)")
+st.caption("🌐 Posez vos questions en français, anglais, espagnol ou toute autre langue")
+st.caption("⚡ Powered by GPT-4o Mini - Rapide et efficace")
 
 # Sidebar pour upload avec gestion des doublons
 with st.sidebar:
@@ -456,46 +524,84 @@ with st.sidebar:
     st.markdown("""
     **🌐 L'assistant répond dans votre langue :**
     
-    **Français :**
+    **📄 Recherche Interne (Documents):**
     - "Quels documents sont disponibles ?"
-    - "Résume le document rapport.pdf"
-    - "Recherche des informations sur [sujet]"
-    
-    **English :**
     - "What documents are available?"
-    - "Summarize the report.pdf document"
-    - "Search for information about [topic]"
+    - "Résume le document rapport.pdf"
+    - "Search for information about [topic] in my documents"
     
-    **Español :**
-    - "¿Qué documentos están disponibles?"
-    - "Resume el documento informe.pdf"
-    - "Busca información sobre [tema]"
+    **🌐 Recherche Externe (Wikipedia):**
+    - "Recherche sur Wikipedia l'intelligence artificielle"
+    - "Search Wikipedia for machine learning"
+    - "¿Qué dice Wikipedia sobre blockchain?"
+    - "Find information about quantum computing on Wikipedia"
     
-    **Autres langues supportées :**
-    - Deutsch, Italiano, Português, etc.
+    **🔄 Recherche Combinée (Les Deux):**
+    - "Compare mes documents avec les infos Wikipedia sur [sujet]"
+    - "What do my documents say about AI vs Wikipedia?"
+    - "Información interna y externa sobre [tema]"
     
-    **Recherche avancée :**
+    **🔍 Recherche avancée :**
     - "Search with more context on [topic]"
     - "Cherche du contenu lié à [sujet]"
-    - "Statisticas de la base de datos"
+    - "Statistiques de la base de données"
     """)
+    
+    # Indicateur du mode actuel
+    current_mode = st.session_state.get("search_mode", "both")
+    if current_mode == "both":
+        st.success("🔄 Mode Hybride: Documents + Wikipedia")
+    elif current_mode == "internal":
+        st.info("📄 Mode Interne: Documents uniquement")
+    else:
+        st.info("🌐 Mode Externe: Wikipedia uniquement")
 
-# Zone principale
+# Zone principale avec sélecteur de mode
 col1, col2 = st.columns([3, 1])
 
 with col2:
-    st.subheader("🛠️ Outils Disponibles | Available Tools")
-    st.write("""
-    - 🔍 Recherche générale | General search
-    - 📄 Recherche spécifique | Specific search
-    - 📋 Résumé de document | Document summary
-    - 📚 Liste des documents | Document list
-    - 🔎 Recherche contextuelle | Contextual search
-    - 🔗 Contenu connexe | Related content
-    - 📊 Statistiques | Database stats
-    """)
+    st.subheader("🔍 Mode de Recherche")
+    # Initialiser search_mode dans session_state s'il n'existe pas
+    if "search_mode" not in st.session_state:
+        st.session_state.search_mode = "both"
     
-    st.info("🌐 L'assistant s'adapte automatiquement à la langue de votre question")
+    search_mode = st.radio(
+        "Choisissez le type de recherche:",
+        ["both", "internal", "external"],
+        format_func=lambda x: {
+            "both": "🔄 Les Deux (Documents + Wikipedia)",
+            "internal": "📄 Documents Uploadés Seulement", 
+            "external": "🌐 Wikipedia Seulement"
+        }[x],
+        index=0,
+        key="search_mode_radio"
+    )
+    
+    # Mettre à jour session_state
+    st.session_state.search_mode = search_mode
+    
+    st.subheader("🛠️ Outils Disponibles")
+    current_mode = st.session_state.get("search_mode", "both")
+    if current_mode in ["internal", "both"]:
+        st.write("""
+        **📄 Outils Internes:**
+        - 🔍 Recherche générale
+        - 📄 Recherche spécifique
+        - 📋 Résumé de document
+        - 📚 Liste des documents
+        - 🔎 Recherche contextuelle
+        - 🔗 Contenu connexe
+        - 📊 Statistiques
+        """)
+    
+    if current_mode in ["external", "both"]:
+        st.write("""
+        **🌐 Outils Externes:**
+        - 📚 Recherche Wikipedia
+        """)
+    
+    st.info(f"Mode actuel: {current_mode.upper()}")
+    st.caption("🌐 L'assistant s'adapte automatiquement à la langue de votre question")
 
 with col1:
     # Chat interface
@@ -531,8 +637,9 @@ with col1:
         else:
             enhanced_prompt = f"INSTRUCTION: Respond in the same language as this question.\n\nUser question: {prompt}"
         
-        # Générer la réponse
-        agent = create_agent()
+        # Générer la réponse avec le mode sélectionné
+        current_search_mode = st.session_state.get("search_mode", "both")
+        agent = create_agent(search_mode=current_search_mode)
         with st.chat_message("assistant"):
             with st.spinner("🔍 Analyse en cours... | Analysis in progress..."):
                 try:
@@ -544,7 +651,16 @@ with col1:
                         else:
                             chat_history.append(AIMessage(content=msg["content"]))
                     
-                    # Exécuter l'agent avec l'instruction de langue
+                    # Ajouter l'information du mode de recherche au prompt
+                    mode_info = {
+                        "both": "You can search in uploaded documents AND Wikipedia. Use both sources when relevant.",
+                        "internal": "You can ONLY search in uploaded documents. Do not use external knowledge.",
+                        "external": "You can ONLY search on Wikipedia. Do not refer to uploaded documents."
+                    }
+                    
+                    enhanced_prompt = f"{enhanced_prompt}\n\nSEARCH MODE: {current_search_mode.upper()} - {mode_info[current_search_mode]}"
+                    
+                    # Exécuter l'agent avec l'instruction de langue et mode
                     response = agent.invoke({
                         "input": enhanced_prompt,
                         "chat_history": chat_history

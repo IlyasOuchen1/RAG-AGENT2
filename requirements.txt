@@ -7,4 +7,5 @@ langchain-core==0.1.32
 pinecone-client==2.2.4
 openai==1.14.0
 pypdf==4.0.2
-docx2txt==0.8 
+docx2txt==0.8
+wikipedia-api==0.6.0 
