@@ -1,6 +1,6 @@
 # RAG AGENT - Assistant IA avec RAG
 
-Un AGENT IA puissant basé sur la technologie RAG (Retrieval-Augmented Generation) qui permet d'interagir avec vos documents de manière intelligente.
+Un AGENT IA puissant basé sur la technologie RAG (Retrieval-Augmented Generation) qui permet d'interagir avec vos documents interne de manière intelligente et aussi de faire des recherche externe a travers wikipedia search .
 
 ## 🚀 Fonctionnalités
 
